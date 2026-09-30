@@ -12,3 +12,4 @@ build/
 *.sqlite3
 data/raw/
 .DS_Store
+site/

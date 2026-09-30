@@ -1,0 +1,51 @@
+name: Demo
+
+# Sobe o servidor por stdio, roda a sessão roteirizada com um cliente MCP real (incluindo a
+# integração com o ats-match) e publica a página no GitHub Pages a cada push na main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev,ats]"
+      - name: Testes (com a integração ats-match)
+        run: pytest -q
+      - name: Gerar a página da demo
+        run: python scripts/demo.py site/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo
+          path: site
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publicar:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: demo
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

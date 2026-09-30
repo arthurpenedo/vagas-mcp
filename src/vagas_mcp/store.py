@@ -6,7 +6,7 @@ Assim a lógica é testável sem subir servidor nenhum.
 
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 STATUS = ("encontrada", "aplicada", "entrevista", "teste_tecnico", "oferta", "recusada", "desisti")
@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS vagas (
     nivel TEXT,
     status TEXT NOT NULL DEFAULT 'encontrada',
     data_status TEXT NOT NULL,
-    notas TEXT DEFAULT ''
+    notas TEXT DEFAULT '',
+    descricao TEXT DEFAULT '',
+    notion_id TEXT
 );
 CREATE TABLE IF NOT EXISTS historico (
     vaga_id INTEGER NOT NULL REFERENCES vagas(id),
@@ -33,6 +35,9 @@ CREATE TABLE IF NOT EXISTS historico (
     data TEXT NOT NULL
 );
 """
+
+# Colunas criadas depois da v0.1: bancos antigos ganham a coluna sem perder dados.
+MIGRACOES = {"descricao": "TEXT DEFAULT ''", "notion_id": "TEXT"}
 
 
 @dataclass
@@ -47,9 +52,15 @@ class Vaga:
     status: str
     data_status: str
     notas: str
+    descricao: str = ""
+    notion_id: str | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("notion_id")
+        if len(d["descricao"]) > 200:  # a descrição inteira só interessa à análise de aderência
+            d["descricao"] = d["descricao"][:200] + "…"
+        return d
 
 
 class VagaStore:
@@ -57,10 +68,14 @@ class VagaStore:
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        existentes = {r[1] for r in self.conn.execute("PRAGMA table_info(vagas)")}
+        for coluna, tipo in MIGRACOES.items():
+            if coluna not in existentes:
+                self.conn.execute(f"ALTER TABLE vagas ADD COLUMN {coluna} {tipo}")
 
     def adicionar(self, empresa: str, cargo: str, link: str | None = None, plataforma: str | None = None,
                   modelo: str | None = None, nivel: str | None = None, notas: str = "",
-                  hoje: date | None = None) -> Vaga:
+                  descricao: str = "", hoje: date | None = None) -> Vaga:
         if modelo and modelo not in MODELOS:
             raise ValueError(f"modelo deve ser um de {MODELOS}")
         if link and self._por_link(link):
@@ -68,9 +83,9 @@ class VagaStore:
         dia = (hoje or date.today()).isoformat()
         with self.conn:
             cur = self.conn.execute(
-                "INSERT INTO vagas (empresa, cargo, link, plataforma, modelo, nivel, status, data_status, notas)"
-                " VALUES (?, ?, ?, ?, ?, ?, 'encontrada', ?, ?)",
-                (empresa.strip(), cargo.strip(), link, plataforma, modelo, nivel, dia, notas),
+                "INSERT INTO vagas (empresa, cargo, link, plataforma, modelo, nivel, status, data_status, notas, descricao)"
+                " VALUES (?, ?, ?, ?, ?, ?, 'encontrada', ?, ?, ?)",
+                (empresa.strip(), cargo.strip(), link, plataforma, modelo, nivel, dia, notas, descricao),
             )
             self.conn.execute("INSERT INTO historico VALUES (?, 'encontrada', ?)", (cur.lastrowid, dia))
         return self.obter(cur.lastrowid)
@@ -125,6 +140,39 @@ class VagaStore:
         """Candidaturas aplicadas sem novidade há X dias: hora de fazer follow-up."""
         ref = (hoje or date.today()).toordinal()
         return [v for v in self.listar(status="aplicada") if ref - date.fromisoformat(v.data_status).toordinal() >= dias]
+
+    def definir_descricao(self, vaga_id: int, descricao: str) -> Vaga:
+        self.obter(vaga_id)
+        with self.conn:
+            self.conn.execute("UPDATE vagas SET descricao = ? WHERE id = ?", (descricao, vaga_id))
+        return self.obter(vaga_id)
+
+    def vincular_notion(self, vaga_id: int, page_id: str) -> None:
+        with self.conn:
+            self.conn.execute("UPDATE vagas SET notion_id = ? WHERE id = ?", (page_id, vaga_id))
+
+    def relatorio_semanal(self, hoje: date | None = None) -> str:
+        """Resumo em Markdown dos últimos 7 dias: o que andou, o funil e os follow-ups pendentes."""
+        hoje = hoje or date.today()
+        inicio = (hoje - timedelta(days=6)).isoformat()
+        movimentos = self.conn.execute(
+            "SELECT h.status, h.data, v.empresa, v.cargo FROM historico h JOIN vagas v ON v.id = h.vaga_id"
+            " WHERE h.data >= ? AND h.data <= ? ORDER BY h.data, h.rowid", (inicio, hoje.isoformat())
+        ).fetchall()
+        funil = self.funil()
+        linhas = [f"# Busca de emprego: semana de {inicio} a {hoje.isoformat()}", ""]
+        linhas.append(f"**{len(movimentos)} movimentações** na semana, {funil['total']} vagas no total.")
+        linhas += ["", "## O que andou"]
+        linhas += [f"- {m['data']}: {m['empresa']} ({m['cargo']}) → {m['status']}" for m in movimentos] or ["- nada"]
+        linhas += ["", "## Funil (vagas que alcançaram cada etapa)"]
+        linhas += [f"- {etapa}: {n}" for etapa, n in funil["alcancaram"].items()]
+        taxas = [f"{k}: {v:.0%}" for k, v in funil["conversao"].items() if v is not None]
+        if taxas:
+            linhas.append(f"- conversão: {', '.join(taxas)}")
+        paradas = self.paradas(10, hoje)
+        linhas += ["", "## Follow-ups pendentes (aplicadas há 10+ dias sem resposta)"]
+        linhas += [f"- {v.empresa} ({v.cargo}), aplicada em {v.data_status}" for v in paradas] or ["- nenhum"]
+        return "\n".join(linhas)
 
     def _por_link(self, link: str) -> int | None:
         row = self.conn.execute("SELECT id FROM vagas WHERE link = ?", (link,)).fetchone()

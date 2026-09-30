@@ -71,7 +71,26 @@ def test_mcp_server_exposes_tools_and_calls_store(store):
         return names, result, funil
 
     names, result, funil = asyncio.run(run())
-    assert names == {"registrar_vaga", "listar_vagas", "atualizar_status", "resumo_do_funil", "vagas_paradas"}
+    assert names == {"registrar_vaga", "listar_vagas", "atualizar_status", "salvar_descricao", "resumo_do_funil",
+                     "vagas_paradas", "analisar_aderencia", "sincronizar_notion"}
     assert not result.is_error
     assert json.loads(result.content[0].text)["empresa"] == "Empresa Z"
     assert json.loads(funil.content[0].text)["total"] == 1
+
+
+def test_business_errors_reach_the_model(store):
+    from mcp.client import Client
+
+    async def run():
+        async with Client(build_server(store)) as server:
+            return await _dup_e_inexistente(server)
+
+    async def _dup_e_inexistente(server):
+        await server.call_tool("registrar_vaga", {"empresa": "A", "cargo": "C", "link": "https://x/1"})
+        dup = await server.call_tool("registrar_vaga", {"empresa": "B", "cargo": "C", "link": "https://x/1"})
+        inexistente = await server.call_tool("atualizar_status", {"vaga_id": 42, "status": "aplicada"})
+        return dup, inexistente
+
+    dup, inexistente = asyncio.run(run())
+    assert dup.is_error and "Já existe uma vaga com este link" in dup.content[0].text
+    assert inexistente.is_error and "Vaga 42 não encontrada" in inexistente.content[0].text
