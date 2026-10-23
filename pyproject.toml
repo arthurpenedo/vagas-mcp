@@ -14,7 +14,7 @@ dependencies = ["mcp>=2.2,<3", "httpx>=0.27"]
 
 [project.optional-dependencies]
 ats = ["ats-match @ git+https://github.com/arthurpenedo/ats-match"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 vagas-mcp = "vagas_mcp.server:main"
