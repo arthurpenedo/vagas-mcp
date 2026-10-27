@@ -61,6 +61,32 @@ def test_stalled_applications(store):
     assert [v.empresa for v in store.paradas(dias=10, hoje=D20)] == ["A"]
 
 
+def test_listar_filtra_por_status(store):
+    a = store.adicionar("A", "Cargo", hoje=D1)
+    b = store.adicionar("B", "Cargo", hoje=D1)
+    store.atualizar_status(a.id, "aplicada", hoje=D5)
+    assert [v.empresa for v in store.listar()] == ["A", "B"]  # a mais recente em novidade vem primeiro
+    assert [v.empresa for v in store.listar(status="aplicada")] == ["A"]
+    assert [v.id for v in store.listar(status="encontrada")] == [b.id]
+
+
+def test_paradas_conta_o_dia_limite_e_ignora_quem_nao_esta_aplicada(store):
+    a = store.adicionar("A", "Cargo", hoje=D1)
+    b = store.adicionar("B", "Cargo", hoje=D1)
+    store.atualizar_status(a.id, "aplicada", hoje=D5)
+    store.atualizar_status(b.id, "aplicada", hoje=D5)
+    store.atualizar_status(b.id, "entrevista", hoje=D5)
+    assert [v.empresa for v in store.paradas(dias=15, hoje=D20)] == ["A"]  # exatamente 15 dias já pede follow-up
+    assert store.paradas(dias=16, hoje=D20) == []
+
+
+def test_definir_descricao_grava_e_exige_vaga_existente(store):
+    v = store.adicionar("A", "Cargo", hoje=D1)
+    assert store.definir_descricao(v.id, "Python e SQL").descricao == "Python e SQL"
+    with pytest.raises(KeyError):
+        store.definir_descricao(99, "texto")
+
+
 def test_mcp_server_exposes_tools_and_calls_store(store):
     server = build_server(store)
 
