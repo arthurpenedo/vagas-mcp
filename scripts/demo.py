@@ -38,7 +38,7 @@ Ferramentas: Python, SQL, AWS Athena, Power Automate, Git."""
 def semear(db: Path, hoje: date) -> None:
     """Três semanas de busca simuladas, com datas relativas a hoje."""
     s = VagaStore(db)
-    d = lambda n: hoje - timedelta(days=n)  # noqa: E731
+    d = lambda n: hoje - timedelta(days=n)
     vagas = [
         ("Acme Pagamentos", "Analista de IA Jr", "Gupy", "remoto", [("aplicada", 20), ("entrevista", 12), ("teste_tecnico", 6)]),
         ("Orbital Seguros", "Analista de Automação", "LinkedIn", "hibrido", [("aplicada", 18), ("entrevista", 9), ("recusada", 3)]),
@@ -147,7 +147,7 @@ def render(dados: dict) -> str:
         passos.append(f'<div class="passo"><p class="fala">{escape(p["fala"])}</p><div class="card">'
                       f'<div class="call">→ <b>{escape(p["ferramenta"])}</b>({escape(args)})</div>{erro}'
                       f"<pre>{escape(corpo)}</pre></div></div>")
-    chips = lambda xs: "".join(f'<span class="chip">{escape(x)}</span>' for x in xs)  # noqa: E731
+    chips = lambda xs: "".join(f'<span class="chip">{escape(x)}</span>' for x in xs)
     return f"""<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>vagas-mcp · demonstração</title>
 <style>{CSS}</style></head><body><main>
