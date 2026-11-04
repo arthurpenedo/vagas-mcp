@@ -7,6 +7,7 @@ Assim a lógica é testável sem subir servidor nenhum.
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 STATUS = ("encontrada", "aplicada", "entrevista", "teste_tecnico", "oferta", "recusada", "desisti")
@@ -130,7 +131,7 @@ class VagaStore:
             ).fetchone()[0]
         conversao = {
             f"{a}->{b}": round(alcancou[b] / alcancou[a], 3) if alcancou[a] else None
-            for a, b in zip(FUNIL, FUNIL[1:])
+            for a, b in pairwise(FUNIL)
         }
         total = self.conn.execute("SELECT count(*) FROM vagas").fetchone()[0]
         por_status = dict(self.conn.execute("SELECT status, count(*) FROM vagas GROUP BY status").fetchall())
